@@ -7,12 +7,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h> //File Control
+#include <dirent.h>
+#include <errno.h>
 #include "linkedList.h"
 
 #define TOKEN_SIZE 64
 int background = 0;
 
-
+/*
 struct node* insert(struct node* current, char* value)
 {
 	//This function will insert the string value at a given point in the node
@@ -41,15 +43,8 @@ struct node* insert(struct node* current, char* value)
 
 	return newNode;
 
-};
-
-struct node* delete(struct node* list, char* value)
-{
-
-};
-
-
-
+}
+*/
 
 void  parse(char *line, char **argv)
 {
@@ -70,17 +65,21 @@ void  parse(char *line, char **argv)
 void inputRedirection(char *file) {
 	int fileIn=open(file,O_RDONLY);
     	if(fileIn<0)
-        	fprintf(stderr,"File cannot be opened.\n");
+        	perror("File could not be opened");
     	dup2(fileIn,0);//connect file to stdin
-    	close(fileIn);
+    	if (close(fileIn) == -1) {
+			perror("File could not be closed");
+		}
 }
 
 void outputRedirection(char *file) {
-	int fileOut=open(argv[i],O_WRONLY | O_TRUNC | O_CREAT,0600); //0600 is a mode
+	int fileOut=open(file,O_WRONLY | O_TRUNC | O_CREAT,0600); //0600 is a mode
     	if(fileOut<0)
-        	fprintf(stderr,"File cannot be opened.\n");
+        	perror("File could not be opened");
     	dup2(fileOut,1);//connect file to stdout
-    	close(fileOut);
+    	if (close(fileOut) == -1) {
+			perror("File could not be closed");
+		}
 }
 
 char** parseSpecialChars(char **argv) {
@@ -100,7 +99,7 @@ char** parseSpecialChars(char **argv) {
 		//Check for output redirection
 		if(*argv[i] == '>') {
 			i++;
-			outputRedirection(*argv[i]);
+			outputRedirection(argv[i]);
 
 		//Check for input redirection
 		} else if(*argv[i] == '<') {
@@ -114,6 +113,8 @@ char** parseSpecialChars(char **argv) {
 		} else if(*argv[i] == '|') {
 			//Terminate the arguement
 			args[bufferPosition]='\0';
+
+			printf("Creating a pipe");
 
 			//Create the pipe
 			int fd[2];
@@ -227,7 +228,7 @@ void printCommands(char **argv) {
 		current = current->next;
 	}
 	fputs(current->data, stdout);
-	fputs("\n", stdout);
+	fputs("\n\n", stdout);
 
 
 }
@@ -241,66 +242,105 @@ void  execute(char **argv) //write your code here
 
 
 	int    status;
-	//In the parent process, PID is the child PID
-	//In the child process, PID is 0
-	pid_t  pid = fork();
+	char cwd[256];
 
-	//Get a count of how many arguments there are
-	int count = 0;
 
-	
-	//If we are the child process
-	if (!pid) {
-		
-		fputs("Hello from child. PID: ", stdout);
-		printf("%d", getpid());
-		printf("%s", argv[0]);
+//cd and ls are special: they operate on the parent function, not the child
+	//If the command is change directory
+	if (!strcmp(argv[0], "cd")) {
+
+		//The third arguement should be empty - there should only be 2 args
+		//if (argv[2] != "\0") {
+		//	fputs("Too many args", stderr);
+		//} else {
+			if(chdir(argv[1]) != 0) {
+				perror("cd operation failed");
+			}
+		fputs("cwd: ", stdout);
+		fputs(getcwd(cwd, sizeof(cwd)), stdout);
 		fputs("\n", stdout);
-		
-		
-		//Execute execvp on the argument. If it fails, then report the failure
-		//Then, exit with a failure
-
-		printf(execvp(argv[0], argv));
-		/*
-		if(execvp(argv[0], argv) < 0) {
-			perror("Execvp Failed");
-			_exit(EXIT_FAILURE);
+		//}
+	//If the command is ls
+	} else if (!strcmp(argv[0], "ls")) {
+		struct dirent *d;
+		DIR *dh = opendir(".");
+		if (!dh) {
+			perror ("Unable to read directory");
+		}
+		while ((d = readdir(dh)) != NULL) {
+			if(d->d_name[0] == '.') {
+				continue;
+			}
+			fputs(d->d_name, stdout);
+			fputs("\n", stdout);
 		}
 
-		*/
-		//If we succeed, exit normally
-		_exit(0);
-	} else if (pid < 0) {	//Fork has failed. Report a failure.
-		printf("Fork has failed");
-		fputs("\n", stdout);
-	} else { //This is the parent process
-		/*
-		fputs("Hello from the parent. PID: ", stdout);
-		printf("%d", getpid());
-		fputs("\n", stdout);
-		*/
-		//If the background flag is set (That is, if & was run), then simply move on
-		//Otherwise, wait for the child to finish
-		if (background) {
-			background = 1;
-		} else {
-			waitpid(pid, NULL, 0);
+	} else {
+		//In the parent process, PID is the child PID
+		//In the child process, PID is 0
+		pid_t  pid = fork();
+
+		
+		//If we are the child process
+		if (!pid) {
+			
+			/*
+			fputs("Hello from child. PID: ", stdout);
+			printf("%d", getpid());
+			printf("%s", argv[0]);
+			printf("\n args: %s", argv);
+			*/
+
+			//Execute execvp on the argument. If it fails, then report the failure
+			//Then, exit with a failure
+			
+			int status = execvp(argv[0], argv);
+			if (status < 0) {
+				perror("Execvp Error");
+				_exit(EXIT_FAILURE);
+			}
+			fputs("After running", stdout);
+			
+			//If we succeed, exit normally
+			_exit(0);
+		} else if (pid < 0) {	//Fork has failed. Report a failure.
+			printf("Fork has failed");
+			fputs("\n", stdout);
+		} else { //This is the parent process
+			
+			//fputs("Hello from the parent. PID: ", stdout);
+			//printf("%d", getpid());
+			//fputs("\n", stdout);
+			
+			//If the background flag is set (That is, if & was run), then simply move on
+			//Otherwise, wait for the child to finish
+			if (background) {
+				background = 1;
+			} else {
+				waitpid(pid, NULL, 0);
+				//fputs("Parent is now moving on\n", stdout);
+			}
+
+			//If its a background process or we're done waiting, return the input and output to the console
+
+			int fdOut = open("/dev/tty", O_WRONLY | O_TRUNC | O_CREAT,0600);
+			int fdIn=open("/dev/tty",O_RDONLY);
+
+			if (fdOut == -1 || fdIn == -1) {
+				fprintf(stderr, "Failed to open /dev/tty\n");
+				perror("open");
+				// Handle the error as needed
+			} else {
+				dup2(fdOut, 1);    // Connect /dev/tty to stdin
+				close(fdOut);
+
+				dup2(fdIn, 0);    // Connect /dev/tty to stdin
+				close(fdIn);
+				// Now you can use stdin and stdout as usual
+			}
+
+			
 		}
-
-		//If its a background process or we're done waiting, return the input and output to the console
-
-		int fileOut=open("/dev/tty",O_WRONLY | O_CREAT,0600); //0600 is a mode
-    		if(fileOut<0)
-        		fprintf(stderr,"File cannot be opened.\n");
-    		dup2(fileOut,1);//connect file to stdout
-    		close(fileOut);
-
-		int fileIn=open("/dev/tty",O_RDONLY);
-    		if(fileIn<0)
-        		fprintf(stderr,"File cannot be opened.\n");
-    			dup2(fileIn,0);//connect file to stdin
-    		close(fileIn);
 	}
 
 
@@ -330,6 +370,9 @@ void  main(void)
 		args = parseSpecialChars(argv);
 
 		execute(args);            //otherwise, execute the command 
+		background = 0;
+		//free(args);
+		//free(argv);
 	}
     }
 }

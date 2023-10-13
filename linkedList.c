@@ -43,9 +43,9 @@ struct node* insert(struct node* current, char* value)
 
 	return newNode;
 
-};
+}
 
 struct node* delete(struct node* list, char* value)
 {
 
-};
+}
