@@ -14,54 +14,6 @@
 #define TOKEN_SIZE 64
 int background = 0;
 
-/*
-struct node* insert(struct node* current, char* value)
-{
-	//This function will insert the string value at a given point in the node
-	//If there exists a node afterwards, it will relink it.
-	//If the inserted node is at the end. the next character will not be set
-	
-
-	if (value == NULL) {
-		return current;
-	}
-
-	//Allocate some memory for the new node
-	struct node* newNode = (struct node*)malloc(sizeof(struct node));
-
-	//Allocate some memory for the new node's data
-	newNode->data = (char*)malloc(sizeof(value));
-
-	//Set the new node to the previous node's next
-	newNode->next = current->next;
-
-	//Add the string data into newNode
-	strcpy(newNode->data, value);
-
-	//move the current->next to point to the new node we just created
-	current->next = newNode;
-
-	return newNode;
-
-}
-*/
-
-void  parse(char *line, char **argv)
-{
-    while (*line != '\0') {       /* if not the end of line ....... */ 
-        while (*line == ' ' || *line == '\t' || *line == '\n')
-            *line++ = '\0';     /* replace white spaces with 0    */
-        *argv++ = line;          /* save the argument position     */
-
-		//This will loop while loop will check character by character until it reaches a [\0, ' ', \t, \n]
-        while (*line != '\0' && *line != ' ' && *line != '\t' && *line != '\n') {
-			line++;             /* skip the argument until ...    */
-		}
-
-     	}
-    *argv = '\0';                 /* mark the end of argument list  */
-}
-
 void inputRedirection(char *file) {
 	int fileIn=open(file,O_RDONLY);
     	if(fileIn<0)
@@ -82,6 +34,124 @@ void outputRedirection(char *file) {
 		}
 }
 
+
+void  execute(char **argv) //write your code here
+{
+
+//HINT you need to introduce the following functions: fork, execvp, waitpid
+//Advanced HINT: pipe, dup2, close, open
+
+//Thus begins part 2: Executing commands
+
+
+	int    status;
+	char cwd[256];
+
+
+//cd and ls are special: they operate on the parent function, not the child
+	//If the command is change directory
+	if (!strcmp(argv[0], "cd")) {
+
+		//The third arguement should be empty - there should only be 2 args
+		//if (argv[2] != "\0") {
+		//	fputs("Too many args", stderr);
+		//} else {
+			if(chdir(argv[1]) != 0) {
+				perror("cd operation failed");
+			}
+		fputs("cwd: ", stdout);
+		fputs(getcwd(cwd, sizeof(cwd)), stdout);
+		fputs("\n", stdout);
+		//}
+	//If the command is ls
+	} else if (!strcmp(argv[0], "ls")) {
+		struct dirent *d;
+		DIR *dh = opendir(".");
+		if (!dh) {
+			perror ("Unable to read directory");
+		}
+		while ((d = readdir(dh)) != NULL) {
+			if(d->d_name[0] == '.') {
+				continue;
+			}
+			fputs(d->d_name, stdout);
+			fputs("\n", stdout);
+		}
+
+	} else {
+		//In the parent process, PID is the child PID
+		//In the child process, PID is 0
+		pid_t  pid = fork();
+
+		
+		//If we are the child process
+		if (!pid) {
+			
+			/*
+			fputs("Hello from child. PID: ", stdout);
+			printf("%d", getpid());
+			printf("%s", argv[0]);
+			printf("\n args: %s", argv);
+			*/
+
+			//Execute execvp on the argument. If it fails, then report the failure
+			//Then, exit with a failure
+			
+			int status = execvp(argv[0], argv);
+			if (status < 0) {
+				perror("Execvp Error");
+				_exit(EXIT_FAILURE);
+			}
+			fputs("After running", stdout);
+			
+			//If we succeed, exit normally
+			_exit(0);
+		} else if (pid < 0) {	//Fork has failed. Report a failure.
+			printf("Fork has failed");
+			fputs("\n", stdout);
+		} else { //This is the parent process
+			
+			//fputs("Hello from the parent. PID: ", stdout);
+			//printf("%d", getpid());
+			//fputs("\n", stdout);
+			
+			//If the background flag is set (That is, if & was run), then simply move on
+			//Otherwise, wait for the child to finish
+			if (background) {
+				background = 1;
+			} else {
+				waitpid(pid, NULL, 0);
+				//fputs("Parent is now moving on\n", stdout);
+			}
+
+			//If its a background process or we're done waiting, return the input and output to the console
+			outputRedirection("/dev/tty");
+			inputRedirection("/dev/tty");
+			
+		}
+	}
+
+
+}
+
+void  parse(char *line, char **argv)
+{
+    while (*line != '\0') {       /* if not the end of line ....... */ 
+        while (*line == ' ' || *line == '\t' || *line == '\n')
+            *line++ = '\0';     /* replace white spaces with 0    */
+        *argv++ = line;          /* save the argument position     */
+
+		//This will loop while loop will check character by character until it reaches a [\0, ' ', \t, \n]
+        while (*line != '\0' && *line != ' ' && *line != '\t' && *line != '\n') {
+			line++;             /* skip the argument until ...    */
+		}
+
+     	}
+    *argv = '\0';                 /* mark the end of argument list  */
+}
+
+
+
 char** parseSpecialChars(char **argv) {
 	//Declares a buffer for commands that execvp should execute
 	char** args = malloc(TOKEN_SIZE*sizeof(char*));
@@ -94,7 +164,7 @@ char** parseSpecialChars(char **argv) {
 
 	//Loop through the entire null seperated array and search for the special characters we use [>, <, |, &]
 	//If on the current iteration we didn't encounter any special characters, add the argument to a buffer that will be returned for execute() to run in the main loop
-	for (int i = 0; argv[i] != '\0'; i++) {
+	for (int i = 0; *argv[i] != '\0'; i++) {
 		//If it encounters ><, it will create the file, then connect the files to the stdout or stdin as required
 		//Check for output redirection
 		if(*argv[i] == '>') {
@@ -104,7 +174,7 @@ char** parseSpecialChars(char **argv) {
 		//Check for input redirection
 		} else if(*argv[i] == '<') {
 			i++;
-			inputRedirection(*argv[i]);
+			inputRedirection(argv[i]);
 			
 		
 		//Check for pipe. If pipe, add a null to the end of the current argument list, then create the pipe.
@@ -114,7 +184,7 @@ char** parseSpecialChars(char **argv) {
 			//Terminate the arguement
 			args[bufferPosition]='\0';
 
-			printf("Creating a pipe");
+			//printf("Creating a pipe");
 
 			//Create the pipe
 			int fd[2];
@@ -232,119 +302,7 @@ void printCommands(char **argv) {
 
 
 }
-void  execute(char **argv) //write your code here
-{
 
-//HINT you need to introduce the following functions: fork, execvp, waitpid
-//Advanced HINT: pipe, dup2, close, open
-
-//Thus begins part 2: Executing commands
-
-
-	int    status;
-	char cwd[256];
-
-
-//cd and ls are special: they operate on the parent function, not the child
-	//If the command is change directory
-	if (!strcmp(argv[0], "cd")) {
-
-		//The third arguement should be empty - there should only be 2 args
-		//if (argv[2] != "\0") {
-		//	fputs("Too many args", stderr);
-		//} else {
-			if(chdir(argv[1]) != 0) {
-				perror("cd operation failed");
-			}
-		fputs("cwd: ", stdout);
-		fputs(getcwd(cwd, sizeof(cwd)), stdout);
-		fputs("\n", stdout);
-		//}
-	//If the command is ls
-	} else if (!strcmp(argv[0], "ls")) {
-		struct dirent *d;
-		DIR *dh = opendir(".");
-		if (!dh) {
-			perror ("Unable to read directory");
-		}
-		while ((d = readdir(dh)) != NULL) {
-			if(d->d_name[0] == '.') {
-				continue;
-			}
-			fputs(d->d_name, stdout);
-			fputs("\n", stdout);
-		}
-
-	} else {
-		//In the parent process, PID is the child PID
-		//In the child process, PID is 0
-		pid_t  pid = fork();
-
-		
-		//If we are the child process
-		if (!pid) {
-			
-			/*
-			fputs("Hello from child. PID: ", stdout);
-			printf("%d", getpid());
-			printf("%s", argv[0]);
-			printf("\n args: %s", argv);
-			*/
-
-			//Execute execvp on the argument. If it fails, then report the failure
-			//Then, exit with a failure
-			
-			int status = execvp(argv[0], argv);
-			if (status < 0) {
-				perror("Execvp Error");
-				_exit(EXIT_FAILURE);
-			}
-			fputs("After running", stdout);
-			
-			//If we succeed, exit normally
-			_exit(0);
-		} else if (pid < 0) {	//Fork has failed. Report a failure.
-			printf("Fork has failed");
-			fputs("\n", stdout);
-		} else { //This is the parent process
-			
-			//fputs("Hello from the parent. PID: ", stdout);
-			//printf("%d", getpid());
-			//fputs("\n", stdout);
-			
-			//If the background flag is set (That is, if & was run), then simply move on
-			//Otherwise, wait for the child to finish
-			if (background) {
-				background = 1;
-			} else {
-				waitpid(pid, NULL, 0);
-				//fputs("Parent is now moving on\n", stdout);
-			}
-
-			//If its a background process or we're done waiting, return the input and output to the console
-
-			int fdOut = open("/dev/tty", O_WRONLY | O_TRUNC | O_CREAT,0600);
-			int fdIn=open("/dev/tty",O_RDONLY);
-
-			if (fdOut == -1 || fdIn == -1) {
-				fprintf(stderr, "Failed to open /dev/tty\n");
-				perror("open");
-				// Handle the error as needed
-			} else {
-				dup2(fdOut, 1);    // Connect /dev/tty to stdin
-				close(fdOut);
-
-				dup2(fdIn, 0);    // Connect /dev/tty to stdin
-				close(fdIn);
-				// Now you can use stdin and stdout as usual
-			}
-
-			
-		}
-	}
-
-
-}
 
 void  main(void)
 {
