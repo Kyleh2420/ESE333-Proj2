@@ -6,19 +6,137 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h> //File Control
 #include "linkedList.h"
+
+#define TOKEN_SIZE 64
+int background = 0;
+
+
+struct node* insert(struct node* current, char* value)
+{
+	//This function will insert the string value at a given point in the node
+	//If there exists a node afterwards, it will relink it.
+	//If the inserted node is at the end. the next character will not be set
+	
+
+	if (value == NULL) {
+		return current;
+	}
+
+	//Allocate some memory for the new node
+	struct node* newNode = (struct node*)malloc(sizeof(struct node));
+
+	//Allocate some memory for the new node's data
+	newNode->data = (char*)malloc(sizeof(value));
+
+	//Set the new node to the previous node's next
+	newNode->next = current->next;
+
+	//Add the string data into newNode
+	strcpy(newNode->data, value);
+
+	//move the current->next to point to the new node we just created
+	current->next = newNode;
+
+	return newNode;
+
+};
+
+struct node* delete(struct node* list, char* value)
+{
+
+};
+
+
+
 
 void  parse(char *line, char **argv)
 {
-     while (*line != '\0') {       /* if not the end of line ....... */ 
-          while (*line == ' ' || *line == '\t' || *line == '\n')
-               *line++ = '\0';     /* replace white spaces with 0    */
-          *argv++ = line;          /* save the argument position     */
-          while (*line != '\0' && *line != ' ' && 
-                 *line != '\t' && *line != '\n') 
-               line++;             /* skip the argument until ...    */
-     }
-     *argv = '\0';                 /* mark the end of argument list  */
+    while (*line != '\0') {       /* if not the end of line ....... */ 
+        while (*line == ' ' || *line == '\t' || *line == '\n')
+            *line++ = '\0';     /* replace white spaces with 0    */
+        *argv++ = line;          /* save the argument position     */
+
+		//This will loop while loop will check character by character until it reaches a [\0, ' ', \t, \n]
+        while (*line != '\0' && *line != ' ' && *line != '\t' && *line != '\n') {
+			line++;             /* skip the argument until ...    */
+		}
+
+     	}
+    *argv = '\0';                 /* mark the end of argument list  */
+}
+
+void inputRedirection(char *file) {
+	int fileIn=open(file,O_RDONLY);
+    	if(fileIn<0)
+        	fprintf(stderr,"File cannot be opened.\n");
+    	dup2(fileIn,0);//connect file to stdin
+    	close(fileIn);
+}
+
+void outputRedirection(char *file) {
+	int fileOut=open(argv[i],O_WRONLY | O_TRUNC | O_CREAT,0600); //0600 is a mode
+    	if(fileOut<0)
+        	fprintf(stderr,"File cannot be opened.\n");
+    	dup2(fileOut,1);//connect file to stdout
+    	close(fileOut);
+}
+
+char** parseSpecialChars(char **argv) {
+	//Declares a buffer for commands that execvp should execute
+	char** args = malloc(TOKEN_SIZE*sizeof(char*));
+	int bufferPosition = 0;
+
+	if(!args) {
+		printf("Allocation Error");
+		exit(EXIT_FAILURE);
+	}
+
+	//Loop through the entire null seperated array and search for the special characters we use [>, <, |, &]
+	//If on the current iteration we didn't encounter any special characters, add the argument to a buffer that will be returned for execute() to run in the main loop
+	for (int i = 0; argv[i] != '\0'; i++) {
+		//If it encounters ><, it will create the file, then connect the files to the stdout or stdin as required
+		//Check for output redirection
+		if(*argv[i] == '>') {
+			i++;
+			outputRedirection(*argv[i]);
+
+		//Check for input redirection
+		} else if(*argv[i] == '<') {
+			i++;
+			inputRedirection(*argv[i]);
+			
+		
+		//Check for pipe. If pipe, add a null to the end of the current argument list, then create the pipe.
+		//Once the pipe is created, run the command.
+		//Then, reset the buffer and continue reading what the user inputted
+		} else if(*argv[i] == '|') {
+			//Terminate the arguement
+			args[bufferPosition]='\0';
+
+			//Create the pipe
+			int fd[2];
+			pipe(fd);
+			dup2(fd[1], 1); //Connect write fd to stdout
+			close(fd[1]);
+			execute(args);
+			dup2(fd[0], 0); //Connect read fd to stdin
+			close(fd[0]);
+
+			//Reset the buffer position for the next arguement
+			bufferPosition = 0;
+		} else if (*argv[i] == '&') {
+			background = 1;
+			args[bufferPosition] = NULL;
+		} else {
+			//The current word is nothing special
+			//Add to the buffer
+			args[bufferPosition]=argv[i];
+			bufferPosition++;
+		}
+	}
+	return args;
 }
 
 void printCommands(char **argv) {
@@ -26,13 +144,7 @@ void printCommands(char **argv) {
      //These arguements should then be placed into a linked list
      //Linked list was already defined in the file "linkedList.h"
      	//As we loop through the command we will insert into the linked list
-	
 
-	//If there was no arguements, an empty command was entered. return nothing
-	if (argv[0] == NULL) {
-		printf("There was nothing entered");
-		return;
-	}
 
 	
 	//Allocate head and current's memory address
@@ -84,9 +196,11 @@ void printCommands(char **argv) {
 	while (current->next != NULL) {
 		current = current->next;
 		if (strcmp(current->data, "|") == 0) {
-			current = current->next;
-			fputs(current->data, stdout);
-			fputs(" ", stdout);
+			if (current->next != NULL) {
+				current = current->next;
+				fputs(current->data, stdout);
+				fputs(" ", stdout);
+			}
 		}
 	}
 	fputs("\n", stdout);
@@ -131,58 +245,91 @@ void  execute(char **argv) //write your code here
 	//In the child process, PID is 0
 	pid_t  pid = fork();
 
+	//Get a count of how many arguments there are
+	int count = 0;
 
+	
 	//If we are the child process
 	if (!pid) {
+		
 		fputs("Hello from child. PID: ", stdout);
 		printf("%d", getpid());
+		printf("%s", argv[0]);
 		fputs("\n", stdout);
-		_exit(1);
+		
+		
+		//Execute execvp on the argument. If it fails, then report the failure
+		//Then, exit with a failure
+
+		printf(execvp(argv[0], argv));
+		/*
+		if(execvp(argv[0], argv) < 0) {
+			perror("Execvp Failed");
+			_exit(EXIT_FAILURE);
+		}
+
+		*/
+		//If we succeed, exit normally
+		_exit(0);
 	} else if (pid < 0) {	//Fork has failed. Report a failure.
-		fputs("Fork has failed", stdout);
+		printf("Fork has failed");
 		fputs("\n", stdout);
 	} else { //This is the parent process
-		waitpid(pid, &status, 0);
+		/*
 		fputs("Hello from the parent. PID: ", stdout);
 		printf("%d", getpid());
 		fputs("\n", stdout);
+		*/
+		//If the background flag is set (That is, if & was run), then simply move on
+		//Otherwise, wait for the child to finish
+		if (background) {
+			background = 1;
+		} else {
+			waitpid(pid, NULL, 0);
+		}
+
+		//If its a background process or we're done waiting, return the input and output to the console
+
+		int fileOut=open("/dev/tty",O_WRONLY | O_CREAT,0600); //0600 is a mode
+    		if(fileOut<0)
+        		fprintf(stderr,"File cannot be opened.\n");
+    		dup2(fileOut,1);//connect file to stdout
+    		close(fileOut);
+
+		int fileIn=open("/dev/tty",O_RDONLY);
+    		if(fileIn<0)
+        		fprintf(stderr,"File cannot be opened.\n");
+    			dup2(fileIn,0);//connect file to stdin
+    		close(fileIn);
 	}
 
-
-	
-
-	/*
-	//We will be checking for output redirection
-	if (strcmp(argv[], ">")) {
-
-	}
-	*/
-	
-
-	
 
 }
 
 void  main(void)
 {
-     char  line[1024];             /* the input line                 */
-     char  *argv[64];              /* the command line argument      */
+    char  line[1024];             /* the input line                 */
+    char  *argv[64];              /* the command line argument      */
+    char** args;	//Null terminated array of executable commands
 
-     while (1) {                   /* repeat until done ....         */
-          fputs("Shell -> ",stdout);     /*   display a prompt             */
-          fgets(line, 1024, stdin);              /*   read in the command line     */
-          fputs("\n", stdout);
-          parse(line, argv);       /*   parse the line               */
-          if (strcmp(argv[0], "exit") == 0)  /* is it an "exit"?     */
-               exit(0);            /*   exit if it is                */
-	  printf(argv[0]);
 
-	  //It should do nothing if there was no command entered
-	  if (strcmp(argv[0], '\0')) {
-		printf("There was nothing entered");
-	  } else {
-		 printCommands(argv);
-		 execute(argv);           /* otherwise, execute the command */
-	  }
-     }
+    while (1) {                   /* repeat until done ....         */
+        fputs("Shell -> ",stdout);     /*   display a prompt             */
+        fgets(line, 1024, stdin);              /*   read in the command line     */
+        fputs("\n", stdout);
+        parse(line, argv);       /*   parse the line               */
+        if (strcmp(argv[0], "exit") == 0)  /* is it an "exit"?     */
+            exit(0);            /*   exit if it is                */
+
+	//It should do nothing if there was no command entered
+	if (line[0] == '\0') {
+		//printf("There was nothing entered");
+	} else {
+		//printf("%d",*argv[0]);
+		printCommands(argv);
+		args = parseSpecialChars(argv);
+
+		execute(args);            //otherwise, execute the command 
+	}
+    }
 }
