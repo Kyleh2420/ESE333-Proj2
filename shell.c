@@ -59,8 +59,8 @@ void  execute(char **argv) //write your code here
 			if(chdir(argv[1]) != 0) {
 				perror("cd operation failed");
 			}
-		fputs("cwd: ", stdout);
-		fputs(getcwd(cwd, sizeof(cwd)), stdout);
+		//fputs("cwd: ", stdout);
+		//fputs(getcwd(cwd, sizeof(cwd)), stdout);
 		fputs("\n", stdout);
 		//}
 	//If the command is ls
@@ -309,10 +309,12 @@ void  main(void)
     char  line[1024];             /* the input line                 */
     char  *argv[64];              /* the command line argument      */
     char** args;	//Null terminated array of executable commands
+	char cwd[256];
 
 
-    while (1) {                   /* repeat until done ....         */
-        fputs("Shell -> ",stdout);     /*   display a prompt             */
+    while (1) {  /* repeat until done ....         */  
+		fputs(getcwd(cwd, sizeof(cwd)), stdout);               
+        fputs(" -> ",stdout);     /*   display a prompt             */
         fgets(line, 1024, stdin);              /*   read in the command line     */
         fputs("\n", stdout);
         parse(line, argv);       /*   parse the line               */
